@@ -1,9 +1,44 @@
-# RPL Selective-Forwarding: Contiki-NG/Cooja Confirmatory Simulation
+ # RPL Threat-Aware Routing: Simulator, Confirmatory Cooja Simulation, and Dataset
 
-Real Contiki-NG/Cooja simulation of an RPL selective-forwarding attack, built to
-generate per-node ground-truth data and to validate the attack-model assumptions
-used in a companion discrete-time Python simulator (`rpl_sim.py`) for a
-threat-aware adaptive RPL routing controller.
+This repository accompanies the paper *"Threat-Aware Objective Function for
+RPL: A Lightweight Dynamic-Weight Routing Controller for Energy–Security
+Trade-offs in IoT Sensor Networks."* It contains:
+
+- `simulator/` — the primary discrete-time Python simulator (`rpl_sim.py`)
+  that produced all of the paper's headline results (Table 4, hypotheses
+  H1–H4), plus a runner script that reproduces Table 4 exactly.
+- `scripts/` and `ml/` — a confirmatory Contiki-NG/Cooja simulation (real
+  full-stack RPL, not the simplified Python model) used to validate the
+  attack-model assumptions (Section 14 of the paper), plus a baseline
+  classifier on the resulting per-node dataset.
+- `data/` — the confirmatory Cooja simulation's output.
+
+## Primary simulator (`simulator/`)
+
+`rpl_sim.py` models a single-sink RPL DODAG of N energy-constrained nodes
+choosing routes via `Cost(cand) = w * E_norm(cand) + (1 - w) * R_norm(cand)`,
+where `w` is set either by fixed baselines (Static-MRHOF, Static-Trust,
+Fixed-Weight) or by the paper's adaptive threat-aware controller
+(`θ_threat`, `θ_energy`, cooldown `c`, hysteresis exit band).
+
+**Reproducing Table 4:**
+
+```bash
+cd simulator
+python run_table4.py
+```
+
+This prints attack-window PDR (mean ± SEM over 30 seeds) for all four
+controllers at N ∈ {20, 50, 100}, matching Table 4 exactly.
+
+> **Note:** `RPLSim`'s constructor defaults to `theta_threat=0.25`, which
+> does **not** reproduce Table 4. The paper's main results use
+> `theta_threat=0.15, cooldown=30, theta_energy=500.0` — `run_table4.py`
+> pins these explicitly. If you use `RPLSim`/`run_condition` directly for
+> your own experiments, set these parameters yourself rather than relying
+> on the class defaults.
+
+---
 
 ## What this does
 
