@@ -1,4 +1,4 @@
- # RPL Threat-Aware Routing: Simulator, Confirmatory Cooja Simulation, and Dataset
+# RPL Threat-Aware Routing: Simulator, Confirmatory Cooja Simulation, and Dataset
 
 This repository accompanies the paper *"Threat-Aware Objective Function for
 RPL: A Lightweight Dynamic-Weight Routing Controller for Energy–Security
@@ -37,6 +37,22 @@ controllers at N ∈ {20, 50, 100}, matching Table 4 exactly.
 > pins these explicitly. If you use `RPLSim`/`run_condition` directly for
 > your own experiments, set these parameters yourself rather than relying
 > on the class defaults.
+
+**Reproducing Table 6 (H4, network lifetime):**
+
+```bash
+cd simulator
+python run_h4.py
+```
+
+> **Note:** this uses a *different* `INIT_ENERGY` (600, not the Table 4
+> configuration's 4000). At `INIT_ENERGY=4000`, no node depletes within the
+> simulated horizon under no-attack conditions — not even over a 50× longer
+> run — because the controller's own energy-aware routing load-balances
+> traffic away from low-energy nodes, making the lifetime metric degenerate
+> (zero variance) at that configuration. `run_h4.py` uses a dedicated,
+> separately-tuned energy budget so depletion is actually observable,
+> without touching the parameters behind Table 4 / the sensitivity sweep.
 
 ---
 
