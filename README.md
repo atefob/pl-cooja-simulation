@@ -21,6 +21,15 @@ where `w` is set either by fixed baselines (Static-MRHOF, Static-Trust,
 Fixed-Weight) or by the paper's adaptive threat-aware controller
 (`θ_threat`, `θ_energy`, cooldown `c`, hysteresis exit band).
 
+**Mode switching is fully local/distributed**: each node independently
+tracks its own threat indicator (from its own candidate-link failure
+history only) and its own residual energy, and switches its own mode with
+no network-wide state aggregation or dissemination — see the paper's
+Section 3–4 for the full formulation and rationale (this addresses a
+peer-review critique of an earlier, network-wide version of the
+controller, which is not straightforward to realize in RPL's distributed,
+destination-oriented design).
+
 **Reproducing Table 4:**
 
 ```bash
@@ -33,10 +42,13 @@ controllers at N ∈ {20, 50, 100}, matching Table 4 exactly.
 
 > **Note:** `RPLSim`'s constructor defaults to `theta_threat=0.25`, which
 > does **not** reproduce Table 4. The paper's main results use
-> `theta_threat=0.15, cooldown=30, theta_energy=500.0` — `run_table4.py`
+> `theta_threat=0.35, cooldown=30, theta_energy=500.0` — `run_table4.py`
 > pins these explicitly. If you use `RPLSim`/`run_condition` directly for
 > your own experiments, set these parameters yourself rather than relying
-> on the class defaults.
+> on the class defaults. Note this is higher than an earlier global-
+> controller version's `theta_threat=0.15`: each node's own local threat
+> signal (Eq. (2) in the paper) is noisier than a network-wide average, so
+> a higher threshold is needed to avoid excessive false-positive switching.
 
 **Reproducing Table 6 (H4, network lifetime):**
 
@@ -53,6 +65,20 @@ python run_h4.py
 > (zero variance) at that configuration. `run_h4.py` uses a dedicated,
 > separately-tuned energy budget so depletion is actually observable,
 > without touching the parameters behind Table 4 / the sensitivity sweep.
+
+**Quick one-shot verification (optional):** `verify_all.py` bundles
+`rpl_sim.py` + `run_table4.py` + `run_h4.py` into a single self-contained
+script, for reviewers or readers who just want to run one command and
+compare the printed output against Table 4 and Table 6 in the paper:
+
+```bash
+cd simulator
+python verify_all.py
+```
+
+This is a convenience duplicate for quick verification only — `rpl_sim.py`
+remains the canonical simulator module, and `run_table4.py`/`run_h4.py`
+remain the canonical way to reproduce each table individually.
 
 ---
 
