@@ -1,84 +1,66 @@
 # RPL Threat-Aware Routing: Simulator, Confirmatory Cooja Simulation, and Dataset
 
 This repository accompanies the paper *"Threat-Aware Objective Function for
-RPL: A Lightweight Dynamic-Weight Routing Controller for Energy–Security
+RPL: A Lightweight Dynamic-Weight Routing Controller for Energy-Security
 Trade-offs in IoT Sensor Networks."* It contains:
 
-- `simulator/` — the primary discrete-time Python simulator (`rpl_sim.py`)
-  that produced all of the paper's headline results (Table 4, hypotheses
-  H1–H4), plus a runner script that reproduces Table 4 exactly.
-- `scripts/` and `ml/` — a confirmatory Contiki-NG/Cooja simulation (real
-  full-stack RPL, not the simplified Python model) used to validate the
-  attack-model assumptions (Section 14 of the paper), plus a baseline
-  classifier on the resulting per-node dataset.
-- `data/` — the confirmatory Cooja simulation's output.
+- `simulator/` - the primary discrete-time Python simulator (`rpl_sim.py`) and one
+  script per table/result of the paper (see the table below).
+- `scripts/` and `ml/` - a confirmatory Contiki-NG/Cooja simulation (real full-stack RPL,
+  not the simplified Python model) used to validate the attack-model assumptions
+  (Section 3.5 of the paper), plus a sanity-check classifier on the resulting per-node dataset.
+- `data/` - the confirmatory Cooja simulation's output.
 
 ## Primary simulator (`simulator/`)
 
-`rpl_sim.py` models a single-sink RPL DODAG of N energy-constrained nodes
-choosing routes via `Cost(cand) = w * E_norm(cand) + (1 - w) * R_norm(cand)`,
-where `w` is set either by fixed baselines (Static-MRHOF, Static-Trust,
-Fixed-Weight) or by the paper's adaptive threat-aware controller
-(`θ_threat`, `θ_energy`, cooldown `c`, hysteresis exit band).
+`rpl_sim.py` models a single-sink RPL DODAG of N energy-constrained nodes choosing routes via
+`Cost(cand) = w * E_norm(cand) + (1 - w) * R_norm(cand)`. The `controller` argument of
+`run_condition(n, seed, controller, **kwargs)` selects:
 
-**Mode switching is fully local/distributed**: each node independently
-tracks its own threat indicator (from its own candidate-link failure
-history only) and its own residual energy, and switches its own mode with
-no network-wide state aggregation or dissemination — see the paper's
-Section 3–4 for the full formulation and rationale (this addresses a
-peer-review critique of an earlier, network-wide version of the
-controller, which is not straightforward to realize in RPL's distributed,
-destination-oriented design).
+| `controller` | Meaning in the paper |
+|---|---|
+| `"adaptive"` | the proposed threat-aware controller (`theta_threat`, `theta_energy`, `cooldown`, hysteresis band) |
+| `"static"`, `w_fixed=1.0` | Static-Energy (energy-only cost; *not* MRHOF) |
+| `"static"`, `w_fixed=0.5` | Fixed-Weight |
+| `"static"`, `w_fixed=0.2` | Static-Trust |
+| `"static_mrhof_etx"` | Static-MRHOF (ETX + hysteresis), an RFC 6719-style reimplementation |
 
-**Reproducing Table 4:**
+Mode switching is fully local: each node tracks its own threat indicator (from its own
+candidate-link failure history) and its own residual energy, with no network-wide aggregation.
+The optional arguments `proxy_fn_rate` / `proxy_fp_rate` add noise to the failure signal the
+controller observes (false negatives / false positives); true packet outcomes used for PDR and
+lifetime are never affected.
 
-```bash
-cd simulator
-python run_table4.py
-```
+**Parameters.** All adaptive-controller results use
+`theta_threat=0.35, theta_energy=500, cooldown=30` (`rpl_sim.MAIN_ADAPTIVE`), *not* the
+constructor defaults. If you use `run_condition` for your own experiments, pass these explicitly.
 
-This prints attack-window PDR (mean ± SEM over 30 seeds) for all four
-controllers at N ∈ {20, 50, 100}, matching Table 4 exactly.
-
-> **Note:** `RPLSim`'s constructor defaults to `theta_threat=0.25`, which
-> does **not** reproduce Table 4. The paper's main results use
-> `theta_threat=0.35, cooldown=30, theta_energy=500.0` — `run_table4.py`
-> pins these explicitly. If you use `RPLSim`/`run_condition` directly for
-> your own experiments, set these parameters yourself rather than relying
-> on the class defaults. Note this is higher than an earlier global-
-> controller version's `theta_threat=0.15`: each node's own local threat
-> signal (Eq. (2) in the paper) is noisier than a network-wide average, so
-> a higher threshold is needed to avoid excessive false-positive switching.
-
-**Reproducing Table 6 (H4, network lifetime):**
+### Reproducing the paper's results
 
 ```bash
+pip install -r requirements.txt
 cd simulator
-python run_h4.py
+python run_all.py          # runs everything below, saves outputs to ../results/ (about 5-10 min)
 ```
 
-> **Note:** this uses a *different* `INIT_ENERGY` (600, not the Table 4
-> configuration's 4000). At `INIT_ENERGY=4000`, no node depletes within the
-> simulated horizon under no-attack conditions — not even over a 50× longer
-> run — because the controller's own energy-aware routing load-balances
-> traffic away from low-energy nodes, making the lifetime metric degenerate
-> (zero variance) at that configuration. `run_h4.py` uses a dedicated,
-> separately-tuned energy budget so depletion is actually observable,
-> without touching the parameters behind Table 4 / the sensitivity sweep.
+Each script can also be run alone; each prints its results followed by an `EXPECTED` block with
+the values reported in the paper (same 30 seeds, so they match to the printed precision).
 
-**Quick one-shot verification (optional):** `verify_all.py` bundles
-`rpl_sim.py` + `run_table4.py` + `run_h4.py` into a single self-contained
-script, for reviewers or readers who just want to run one command and
-compare the printed output against Table 4 and Table 6 in the paper:
+| Script | Reproduces |
+|---|---|
+| `run_table4.py` | Table 4 (all five conditions, overhead ratio), H1/H2 statistics (paired t-test, TOST, Cohen's d_z), comparison with Static-MRHOF (ETX+Hysteresis) |
+| `run_h4.py` | Table 6 (H4, network lifetime, no attack, `INIT_ENERGY=600`) |
+| `run_noisy_proxy.py` | Table 5 (noisy local detection proxy) |
+| `run_sensitivity_sweep.py` | Section 3.2-3.3 sensitivity sweep (theta_threat x cooldown grid, N=50; Figs. 3-4) |
+| `run_combined_regime.py` | Tables 7 and 8 and the H3 check (combined attack-and-depletion regime, `INIT_ENERGY=1000`) |
+| `run_stress_test.py` | Section 3.6 stress test (sustained attack, share of node-ticks "trapped" in RESILIENT mode below `theta_energy`) |
+| `run_attacker_sensitivity.py` | Section 3.2 robustness of the theta_threat-vs-cooldown finding to attacker strength and compromised fraction |
 
-```bash
-cd simulator
-python verify_all.py
-```
-
-This is a convenience duplicate for quick verification only — `rpl_sim.py`
-remains the canonical simulator module, and `run_table4.py`/`run_h4.py`
-remain the canonical way to reproduce each table individually.
+Notes:
+- Experiments change a few module-level constants (e.g. `INIT_ENERGY`); every script calls
+  `rpl_sim.reset_defaults()` first, so they do not interfere with each other.
+- `run_h4.py` uses `INIT_ENERGY=600` because at the main-comparison value (4000) no node
+  depletes in the no-attack horizon and the lifetime metric is degenerate (Section 3.4).
 
 ---
 
@@ -145,7 +127,7 @@ increments inside the attacker's own malicious code path, so they are a
 near-perfect predictor by construction (oracle leakage) — this baseline is a
 pipeline sanity check, not a claim of realistic IDS performance. A real detector
 should use externally-observable features instead (see `dio_rx`, `dao_rx`,
-`parent_switches` in the same CSV, and Section 14 of the paper for discussion of
+`parent_switches` in the same CSV, and Section 3.5 of the paper for discussion of
 what was/wasn't found to discriminate malicious nodes with this attack model).
 
 ```bash
@@ -156,10 +138,10 @@ python ml/train_rf_baseline.py   # reads data/per_node_dataset.csv
 ## Realism-validation script (`scripts/compare_with_rpl_sim.py`)
 
 Aggregates `real_cooja_results.csv` by (network size, drop_pct) and compares
-against the companion `rpl_sim.py` discrete-time simulator's Static-MRHOF
+against the companion `rpl_sim.py` discrete-time simulator's Static-Energy
 attack-window PDR values, to check whether the simplified simulator's attack-model
 assumptions hold up against a full-stack Cooja simulation. This is what produced
-Table 5 / Fig. 5 in the paper's Section 14.
+Table 9 / Fig. 5 in the paper's Section 3.5.
 
 ```bash
 python scripts/compare_with_rpl_sim.py   # reads data/real_cooja_results.csv
@@ -180,4 +162,4 @@ python scripts/compare_with_rpl_sim.py   # reads data/real_cooja_results.csv
 
 ## License
 
-MIT (or replace with whatever license suits your submission).
+MIT License (see `LICENSE`).
