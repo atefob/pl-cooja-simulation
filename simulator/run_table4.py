@@ -1,57 +1,75 @@
 """
-Reproduces Table 4 (main comparison, H1/H2) from the paper.
+Reproduces Table 4 (main comparison) and the H1/H2 statistics of the paper.
 
-IMPORTANT: RPLSim's class defaults (theta_threat=0.25) do NOT reproduce
-Table 4. The main results use theta_threat=0.15, cooldown=30, and the
-default theta_energy=500.0 — this script pins those values explicitly so
-the paper's headline numbers are reproducible without guessing.
+All adaptive-controller results in the paper use
+    theta_threat = 0.35, theta_energy = 500, cooldown = 30
+(rpl_sim.MAIN_ADAPTIVE) -- NOT the RPLSim constructor defaults.
 
-Usage:
-    python simulator/run_table4.py
+Usage:   python run_table4.py          (about 1-2 minutes)
 """
+import os, sys
 import numpy as np
-from rpl_sim import run_condition
+from scipy import stats
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import rpl_sim
+from rpl_sim import run_condition, MAIN_ADAPTIVE
+from stats_utils import mean_sem, cohens_dz, tost_paired, fmt_p
 
-SEEDS = list(range(30))          # 30 seeds per condition, as in the paper
-NETWORK_SIZES = [20, 50, 100]
+SEEDS = list(range(30))
+SIZES = [20, 50, 100]
+TOST_MARGIN = 0.03          # +/-3 percentage points of attack-window PDR (H1)
 
-# Parameters used for the adaptive controller in Table 4 (NOT the class defaults).
-ADAPTIVE_PARAMS = dict(theta_threat=0.15, theta_energy=500.0, cooldown=30)
+rpl_sim.reset_defaults()
 
-# Static baselines: fixed routing-cost weight w, no mode-switching.
-STATIC_BASELINES = {
-    "Static-MRHOF": dict(controller="static", w_fixed=1.0),
-    "Fixed-Weight": dict(controller="static", w_fixed=0.5),
-    "Static-Trust": dict(controller="static", w_fixed=0.2),
+CONDITIONS = {
+    "Static-Energy":            dict(controller="static", w_fixed=1.0),
+    "Static-MRHOF (ETX+Hyst.)": dict(controller="static_mrhof_etx"),
+    "Fixed-Weight":             dict(controller="static", w_fixed=0.5),
+    "Static-Trust":             dict(controller="static", w_fixed=0.2),
 }
 
-
-def mean_sem(values):
-    values = np.array(values)
-    return values.mean(), values.std(ddof=1) / np.sqrt(len(values))
-
-
-def run_all():
-    rows = []
-
-    for n in NETWORK_SIZES:
-        results = [run_condition(n, s, "adaptive", **ADAPTIVE_PARAMS) for s in SEEDS]
-        pdr_mean, pdr_sem = mean_sem([r["pdr_attack"] for r in results])
-        oh_mean, oh_sem = mean_sem([r["overhead_ratio"] for r in results])
-        rows.append(("Proposed (Adaptive)", n, pdr_mean, pdr_sem, oh_mean, oh_sem))
-
-    for name, kwargs in STATIC_BASELINES.items():
-        for n in NETWORK_SIZES:
-            results = [run_condition(n, s, **kwargs) for s in SEEDS]
-            pdr_mean, pdr_sem = mean_sem([r["pdr_attack"] for r in results])
-            rows.append((name, n, pdr_mean, pdr_sem, None, None))
-
-    return rows
-
-
 if __name__ == "__main__":
-    print(f"{'Controller':<22}{'N':>5}{'PDR (attack)':>18}{'Overhead (N=100)':>20}")
-    for name, n, pdr_mean, pdr_sem, oh_mean, oh_sem in run_all():
-        pdr_str = f"{pdr_mean:.3f} \u00b1 {pdr_sem:.3f}"
-        oh_str = f"{oh_mean:.3f} \u00b1 {oh_sem:.3f}" if oh_mean is not None else "\u2014"
-        print(f"{name:<22}{n:>5}{pdr_str:>18}{oh_str:>20}")
+    data = {}
+    for n in SIZES:
+        data[("Proposed (Adaptive)", n)] = [run_condition(n, s, "adaptive", **MAIN_ADAPTIVE) for s in SEEDS]
+        for name, kw in CONDITIONS.items():
+            data[(name, n)] = [run_condition(n, s, **kw) for s in SEEDS]
+
+    print("TABLE 4 -- attack-window PDR (mean +/- SEM, 30 seeds); overhead ratio for the adaptive controller")
+    print(f"{'Controller':<28}{'N=20 PDR':>16}{'N=50 PDR':>16}{'N=100 PDR':>16}")
+    order = ["Static-Energy", "Static-MRHOF (ETX+Hyst.)", "Fixed-Weight", "Proposed (Adaptive)", "Static-Trust"]
+    for name in order:
+        cells = []
+        for n in SIZES:
+            m, e = mean_sem([r["pdr_attack"] for r in data[(name, n)]])
+            cells.append(f"{m:.3f}+/-{e:.3f}")
+        print(f"{name:<28}{cells[0]:>16}{cells[1]:>16}{cells[2]:>16}")
+    cells = []
+    for n in SIZES:
+        m, e = mean_sem([r["overhead_ratio"] for r in data[("Proposed (Adaptive)", n)]])
+        cells.append(f"{m:.3f}+/-{e:.3f}")
+    print(f"{'Adaptive overhead ratio':<28}{cells[0]:>16}{cells[1]:>16}{cells[2]:>16}")
+
+    print("\nH1 (adaptive vs Static-Trust, attack-window PDR) and H2 (overhead ratio vs 1.0)")
+    print(f"{'N':>5}{'paired p':>11}{'TOST p':>11}{'Cohen dz':>10}{'H2 p':>11}{'adaptive vs MRHOF-ETX p':>26}")
+    for n in SIZES:
+        a = np.array([r["pdr_attack"] for r in data[("Proposed (Adaptive)", n)]])
+        t = np.array([r["pdr_attack"] for r in data[("Static-Trust", n)]])
+        mr = np.array([r["pdr_attack"] for r in data[("Static-MRHOF (ETX+Hyst.)", n)]])
+        oh = [r["overhead_ratio"] for r in data[("Proposed (Adaptive)", n)]]
+        p_h1 = stats.ttest_rel(a, t).pvalue
+        p_h2 = stats.ttest_1samp(oh, 1.0).pvalue
+        p_mr = stats.ttest_rel(a, mr).pvalue
+        print(f"{n:>5}{fmt_p(p_h1):>11}{fmt_p(tost_paired(a, t, TOST_MARGIN)):>11}"
+              f"{cohens_dz(a, t):>10.2f}{fmt_p(p_h2):>11}{fmt_p(p_mr):>26}")
+
+    print("""
+EXPECTED (paper, Table 4 and Section 3.1)
+  Static-Energy            0.882+/-0.007  0.806+/-0.006  0.769+/-0.007
+  Static-MRHOF (ETX+Hyst.) 0.928+/-0.003  0.908+/-0.001  0.898+/-0.001
+  Fixed-Weight             0.922+/-0.003  0.898+/-0.002  0.883+/-0.002
+  Proposed (Adaptive)      0.920+/-0.004  0.884+/-0.003  0.866+/-0.003
+  Static-Trust             0.922+/-0.003  0.901+/-0.002  0.888+/-0.002
+  Adaptive overhead ratio  0.428+/-0.035  0.681+/-0.027  0.830+/-0.021
+  H1: paired p 0.063 / <0.0001 / <0.0001;  TOST p <0.0001 / <0.0001 / 0.0004;  dz -0.35 / -1.41 / -1.99
+  H2: p < 0.001 at every N;  adaptive vs MRHOF-ETX: p < 0.0001 at every N""")
